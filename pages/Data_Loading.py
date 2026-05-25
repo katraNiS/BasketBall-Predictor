@@ -67,10 +67,7 @@ st.success('File uploaded successfully!')
 
 st.dataframe(dataset.head())
 st.write(f"Dataset shape: {dataset.shape[0]} rows and {dataset.shape[1]} columns")
-st.write(f"Missing values per column:")
-st.dataframe(dataset.isnull().sum())
-st.write(f"Data types of each column:")
-st.dataframe(dataset.dtypes)
+
 
 
 # Columns for options
@@ -188,29 +185,6 @@ st.subheader("Cleaned Data Preview")
 st.dataframe(df_clean.head())
 st.write(f"Dataset shape: {df_clean.shape[0]} rows and {df_clean.shape[1]} columns")
 
-
-# Target Features and Target Variables (user picks)
-
-target_variable = st.selectbox("Select Target Variable", options=df_clean.columns.tolist(), key="target_variable")
-default_features = [col for col in df_clean.columns if col != target_variable] # set default 
-target_features = st.multiselect(
-    "Select Target Feature",
-    options=[col for col in df_clean.columns if col != target_variable],
-    default=default_features,
-    key="target_features"
-)
-
-# Save the target variable and features in session state for EDA page
-
-if not target_features: # guard 
-    st.warning("Please select atleast one feature to continue.")
-    st.stop()
-
-
-# Saving with "saved_" prefix to avoid conflicts with widget keys — widget keys can reset during page navigation
-
-st.session_state["saved_target_variable"] = target_variable 
-st.session_state["saved_target_features"] = target_features 
 
 st.success(f"Your data has been saved!")
 if st.button(f"Press to continue to proceed to EDA."):

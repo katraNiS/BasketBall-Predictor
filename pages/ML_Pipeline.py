@@ -11,12 +11,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
-#-------- Title --------
-
-st.title("ML Pipeline")
-st.caption("Build and evaluate your machine learning models with ease.")
-
-
 #-------- Get the CSV from the session_state --------
 
 df_clean = st.session_state.get("new_df_clean")
@@ -30,6 +24,45 @@ if df_model is None: # guard for the df_model
     st.warning("Please complete Data Loading first.")
     st.stop()
     
+
+#-------- Title --------
+
+st.title("ML Pipeline")
+st.caption("Build and evaluate your machine learning models with ease.")
+
+# Target Features and Target Variables (user picks)
+st.info(
+    "Target variables are restricted to avoid feature leakage and unrealistic model performance."
+)
+
+allowed_targets = ["AST", "ORB", "STL", "BLK", "TOV"    ]
+
+target_variable = st.selectbox(
+    "Select Target Variable",
+    options=allowed_targets,
+    key="target_variable"
+)
+default_features = [col for col in df_clean.columns if col != target_variable] # set default 
+target_features = st.multiselect(
+    "Select Target Feature",
+    options=[col for col in df_clean.columns if col != target_variable],
+    default=default_features,
+    key="target_features"
+)
+
+
+# Save the target variable and features in session state for EDA page
+
+if not target_features: # guard 
+    st.warning("Please select atleast one feature to continue.")
+    st.stop()
+
+
+# Saving with "saved_" prefix to avoid conflicts with widget keys — widget keys can reset during page navigation
+
+st.session_state["saved_target_variable"] = target_variable 
+st.session_state["saved_target_features"] = target_features 
+
 #-------- Get targets from the session_state --------   
     
 target_variable = st.session_state.get("saved_target_variable") # get the target_variable from the "Data_Loading" page
@@ -55,8 +88,22 @@ if target_variable not in df_model.columns:
 
 st.title("Regression Model Comparison")
 
-x = df_model.drop(columns=target_variable) # drop the target variable from the features
-y = df_model[target_variable]
+
+leakage_cols = ["Player", "Pos", "Tm"]
+
+target_features = [
+    col for col in target_features
+    if col not in leakage_cols
+]
+
+# Use selected features from the clean dataframe
+x = df_clean[target_features].copy()
+y = df_clean[target_variable].copy()
+
+# Convert categorical selected features into numeric columns
+x = pd.get_dummies(x, drop_first=True)
+
+
 
 st.subheader("Model Selection")
 user_regression_model = st.selectbox("Select a Regression Model", options=["Linear Regression", "Random Forest"], key="reg_model")
@@ -99,6 +146,22 @@ rf_model = RandomForestRegressor(
     )
 
 rf_model.fit(x_train, y_train)
+importance_df = pd.DataFrame({
+    "Feature": x.columns,
+    "Importance": rf_model.feature_importances_
+}).sort_values(by="Importance", ascending=False)
+
+st.subheader("Feature Importance")
+st.dataframe(importance_df.head(10))
+
+fig = px.bar(
+    importance_df.head(10),
+    x="Importance",
+    y="Feature",
+    orientation="h"
+)
+
+st.plotly_chart(fig)
 rf_y_pred = rf_model.predict(x_test)
 rf_rmse = np.sqrt(mean_squared_error(y_test, rf_y_pred))
 rf_mae = mean_absolute_error(y_test, rf_y_pred)
@@ -144,84 +207,193 @@ st.dataframe(comparison)
 st.divider()
 
 st.title("Classification Model Comparison")
+st.caption("Predict player role based on selected statistical features.")
 
-y_class = pd.qcut(y, q=3, labels=["Cheap", "Medium", "Expensive"]) # convert the regression target into 3 classes
+classification_features = [
+    "AST",
+    "TRB",
+    "STL",
+    "BLK",
+    "FG%",
+    "3P%",
+    "FT%",
+    "MP",
+    "PTS"
+]
+
+# Keep only features that exist in the dataset
+classification_features = [
+    col for col in classification_features
+    if col in df_clean.columns
+]
+
+x_class = df_clean[classification_features].copy()
+
+# One-hot encode if needed
+x_class = pd.get_dummies(x_class, drop_first=True)
+
+
+# Use real player position as the classification target
+position_col = "Pos"
+
+if position_col not in df_clean.columns:
+    st.warning("Position column was not found in the dataset.")
+    st.stop()
+
+y_class = df_clean[position_col].copy()
+
+# Convert detailed NBA positions into 3 broader player roles
+def map_position(pos):
+    pos = str(pos)
+
+    if "PG" in pos or "SG" in pos:
+        return "Guard"
+    elif "SF" in pos or "PF" in pos:
+        return "Forward"
+    elif "C" in pos:
+        return "Center"
+    else:
+        return "Other"
+
+y_class = y_class.apply(map_position)
+
+# Remove unknown/unsupported positions
+valid_rows = y_class != "Other"
+
+x_class = x_class.loc[valid_rows]
+y_class = y_class.loc[valid_rows]
+
+# Guard against very small classes
+class_counts = y_class.value_counts()
+valid_classes = class_counts[class_counts >= 2].index
+
+x_class = x_class[y_class.isin(valid_classes)]
+y_class = y_class[y_class.isin(valid_classes)]
+
+st.write("Classification target distribution:")
+st.dataframe(y_class.value_counts())
 
 st.subheader("Model Selection")
-user_classification_model = st.selectbox("Select a Classification Model", options=["Decision Tree", "K-Nearest Neighbors"], key="class_model")
 
+user_classification_model = st.selectbox(
+    "Select a Classification Model",
+    options=["Decision Tree", "K-Nearest Neighbors"],
+    key="class_model"
+)
 
 #-------- User's Parameters --------
 
+test_size = st.slider(
+    "Test size",
+    min_value=0.1,
+    max_value=0.5,
+    value=0.2,
+    step=0.05,
+    key="class_test_size"
+)
 
-# for both models
-test_size = st.slider("Test size", min_value=0.1, max_value=0.5, value=0.2, step=0.05, key="class_test_size")
-
-# defaults
 user_max_depth_class = 10
 user_n_neighbors = 5
 
 if user_classification_model == "Decision Tree":
-    # for decision tree
     st.text("For Decision Tree:")
-    user_max_depth_class = st.slider("Select the depth of the tree:", min_value = 2, max_value = 20, value = 10, step = 1, key="max_depth_class")
-    
-elif user_classification_model == "K-Nearest Neighbors":
-    # for KNN
-    st.text("For K-Nearest Neighbors:")
-    user_n_neighbors = st.slider("Select the number of neighbors:", min_value = 1, max_value = 20, value = 5, step = 1, key="n_neighbors")
+    user_max_depth_class = st.slider(
+        "Select the depth of the tree:",
+        min_value=2,
+        max_value=20,
+        value=10,
+        step=1,
+        key="max_depth_class"
+    )
 
-x_train_class, x_test_class, y_train_class, y_test_class = train_test_split(x, y_class, test_size=test_size, random_state=42)
-        
+elif user_classification_model == "K-Nearest Neighbors":
+    st.text("For K-Nearest Neighbors:")
+    user_n_neighbors = st.slider(
+        "Select the number of neighbors:",
+        min_value=1,
+        max_value=20,
+        value=5,
+        step=1,
+        key="n_neighbors"
+    )
+
+x_train_class, x_test_class, y_train_class, y_test_class = train_test_split(
+    x_class,
+    y_class,
+    test_size=test_size,
+    random_state=42,
+    stratify=y_class
+)
+
 #-------- Decision Tree --------
 
 dt_model = DecisionTreeClassifier(
     max_depth=user_max_depth_class,
     random_state=42
 )
+
 dt_model.fit(x_train_class, y_train_class)
 dt_y_pred = dt_model.predict(x_test_class)
+
 dt_accuracy = accuracy_score(y_test_class, dt_y_pred)
-dt_f1 = f1_score(y_test_class, dt_y_pred, average='weighted')
+dt_f1 = f1_score(y_test_class, dt_y_pred, average="weighted")
 
 #-------- K-Nearest Neighbors --------
 
 knn_model = KNeighborsClassifier(n_neighbors=user_n_neighbors)
+
 knn_model.fit(x_train_class, y_train_class)
 knn_y_pred = knn_model.predict(x_test_class)
+
 knn_accuracy = accuracy_score(y_test_class, knn_y_pred)
-knn_f1 = f1_score(y_test_class, knn_y_pred, average='weighted')
+knn_f1 = f1_score(y_test_class, knn_y_pred, average="weighted")
 
 #-------- Accuracy & Visualizations --------
+
+labels = ["Guard", "Forward", "Center"]
 
 if user_classification_model == "Decision Tree":
     st.subheader("Decision Tree Measures")
     st.write("Accuracy:", dt_accuracy)
     st.write("F1 Score:", dt_f1)
-    cm = confusion_matrix(y_test_class, dt_y_pred)
-    fig = px.imshow(cm, text_auto=True, 
-                x=["Cheap", "Medium", "Expensive"],
-                y=["Cheap", "Medium", "Expensive"],
-                labels={'x': 'Predicted', 'y': 'Actual'})
+
+    cm = confusion_matrix(y_test_class, dt_y_pred, labels=labels)
+
+    fig = px.imshow(
+        cm,
+        text_auto=True,
+        x=labels,
+        y=labels,
+        labels={"x": "Predicted", "y": "Actual"}
+    )
+
     st.plotly_chart(fig)
 
 elif user_classification_model == "K-Nearest Neighbors":
     st.subheader("K-Nearest Neighbors Measures")
     st.write("Accuracy:", knn_accuracy)
     st.write("F1 Score:", knn_f1)
-    cm = confusion_matrix(y_test_class, knn_y_pred)
-    fig = px.imshow(cm, text_auto=True, 
-                x=["Cheap", "Medium", "Expensive"],
-                y=["Cheap", "Medium", "Expensive"],
-                labels={'x': 'Predicted', 'y': 'Actual'})
+
+    cm = confusion_matrix(y_test_class, knn_y_pred, labels=labels)
+
+    fig = px.imshow(
+        cm,
+        text_auto=True,
+        x=labels,
+        y=labels,
+        labels={"x": "Predicted", "y": "Actual"}
+    )
+
     st.plotly_chart(fig)
 
-#-------- Model Comparison --------    
+#-------- Model Comparison --------
 
 st.subheader("Classification Model Comparison")
+
 comparison = pd.DataFrame({
-    'Model': ['Decision Tree', 'K-Nearest Neighbors'],
-    'Accuracy': [dt_accuracy, knn_accuracy],
-    'F1 Score': [dt_f1, knn_f1]
+    "Model": ["Decision Tree", "K-Nearest Neighbors"],
+    "Accuracy": [dt_accuracy, knn_accuracy],
+    "F1 Score": [dt_f1, knn_f1]
 })
+
 st.dataframe(comparison)
