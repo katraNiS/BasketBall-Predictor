@@ -21,21 +21,7 @@ if df_clean is None: # guard for the df_clean
 if df_model is None: # guard for the df_model
     st.warning("Please complete Data Loading first.")
     st.stop()
-    
-#-------- Get the targets from session_state --------
-
-target_variable = st.session_state.get("saved_target_variable") # get the target_variable from the "Data_Loading" page
-target_features = st.session_state.get("saved_target_features") # get the target_features from the "Data_Loading" page
-
-#-------- Guards for the targets --------
-
-if target_variable is None: 
-    st.warning("Please select your Target Variable first.")
-    st.stop()
-    
-if target_features is None: 
-    st.warning("Please select your Target Features first.")
-    st.stop()    
+   
     
 #-------- Histogram --------
 

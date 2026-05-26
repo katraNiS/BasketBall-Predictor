@@ -8,8 +8,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler # for data normal
 def apply_minmax(df):
     scaler = MinMaxScaler()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    # Excluding res_price from scaling because it's our target variable — we need its original values for prediction
-    numeric_cols = [col for col in numeric_cols if col != 'res_price']
+    numeric_cols = [col for col in numeric_cols]
     df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
     return df
 
@@ -17,7 +16,7 @@ def apply_minmax(df):
 def apply_zscore(df):
     scaler = StandardScaler()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    numeric_cols = [col for col in numeric_cols if col != 'res_price']
+    numeric_cols = [col for col in numeric_cols]
     df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
     return df
 
