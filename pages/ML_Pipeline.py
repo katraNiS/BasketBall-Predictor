@@ -35,7 +35,7 @@ st.info(
     "Target variables are restricted to avoid feature leakage and unrealistic model performance."
 )
 
-allowed_targets = ["AST", "ORB", "STL", "BLK", "TOV"    ]
+allowed_targets = ["AST", "TRB", "STL", "BLK", "TOV", "PTS"]
 
 target_variable = st.selectbox(
     "Select Target Variable",
@@ -397,3 +397,93 @@ comparison = pd.DataFrame({
 })
 
 st.dataframe(comparison)
+
+
+#----------------------------
+#-------- Clustering --------
+#----------------------------
+
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+
+st.divider()
+st.title("Clustering Analysis")
+st.caption("Group players into types based on their statistical profile.")
+
+# Features για clustering
+clustering_features = ["PTS", "AST", "TRB", "STL", "BLK", "FG%", "MP"]
+clustering_features = [col for col in clustering_features if col in df_clean.columns]
+
+x_cluster = df_clean[clustering_features].dropna()
+
+# Scaling — απαραίτητο για K-Means και DBSCAN
+scaler = StandardScaler()
+x_scaled = scaler.fit_transform(x_cluster)
+
+st.subheader("K-Means Clustering")
+n_clusters = st.slider("Number of clusters (K):", min_value=2, max_value=8, value=3, step=1)
+
+kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+kmeans_labels = kmeans.fit_predict(x_scaled)
+
+silhouette_kmeans = silhouette_score(x_scaled, kmeans_labels)
+st.write("Silhouette Score:", silhouette_kmeans)
+
+# Προσθήκη cluster label στα δεδομένα
+x_cluster = x_cluster.copy()
+x_cluster["KMeans_Cluster"] = kmeans_labels
+x_cluster["Player"] = df_clean.loc[x_cluster.index, "Player"]
+
+fig = px.scatter(
+    x_cluster,
+    x="PTS",
+    y="AST",
+    color=x_cluster["KMeans_Cluster"].astype(str),
+    hover_data=["Player"],
+    title="K-Means: Points vs Assists"
+)
+st.plotly_chart(fig)
+
+st.subheader("DBSCAN Clustering")
+eps = st.slider("Epsilon (neighborhood size):", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+min_samples = st.slider("Min samples:", min_value=2, max_value=20, value=5, step=1)
+
+dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+dbscan_labels = dbscan.fit_predict(x_scaled)
+
+n_clusters_dbscan = len(set(dbscan_labels)) - (1 if -1 in dbscan_labels else 0)
+n_noise = list(dbscan_labels).count(-1)
+
+st.write("Clusters found:", n_clusters_dbscan)
+st.write("Noise points:", n_noise)
+
+if n_clusters_dbscan > 1:
+    silhouette_dbscan = silhouette_score(x_scaled, dbscan_labels)
+    st.write("Silhouette Score:", silhouette_dbscan)
+else:
+    silhouette_dbscan = -1
+    st.warning("DBSCAN found only 1 cluster — try adjusting epsilon or min samples.")
+
+x_cluster["DBSCAN_Cluster"] = dbscan_labels
+
+fig = px.scatter(
+    x_cluster,
+    x="PTS",
+    y="AST",
+    color=x_cluster["DBSCAN_Cluster"].astype(str),
+    hover_data=["Player"],
+    title="DBSCAN: Points vs Assists"
+)
+st.plotly_chart(fig)
+
+#-------- Clustering Comparison --------
+
+st.subheader("Clustering Model Comparison")
+clustering_comparison = pd.DataFrame({
+    "Model": ["K-Means", "DBSCAN"],
+    "Clusters Found": [n_clusters, n_clusters_dbscan],
+    "Silhouette Score": [silhouette_kmeans, silhouette_dbscan],
+    "Noise Points": [0, n_noise]
+})
+st.dataframe(clustering_comparison)
